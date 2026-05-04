@@ -1,0 +1,18 @@
+Welcome to Probe IT
+
+This installer will set up Probe IT on your computer.
+
+Important:
+- This is a student project aimed at helping users understand CPU and memory behavior.
+- Results are informational and should not be treated as professional diagnostics.
+
+Probe IT is released under the MIT License and the full license text is included with this installer.
+The project source is available on GitHub: https://github.com/mdishauq/PROBE-IT
+
+Setup options in the next steps include:
+- Installation location
+- Desktop shortcut
+- Start Menu shortcut
+- Launch app after install
+
+Click Next to continue.
