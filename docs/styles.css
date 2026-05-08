@@ -70,6 +70,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 2rem;
 }
 
 .nav-brand {
@@ -115,6 +116,23 @@ body {
 
 .nav-menu a:hover::after {
     width: 100%;
+}
+
+.github-link {
+    padding: 0.6rem 1.2rem;
+    background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+}
+
+.github-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
 }
 
 /* ============================================
@@ -598,6 +616,11 @@ body {
     .nav-menu {
         gap: 1rem;
         font-size: 0.85rem;
+    }
+
+    .github-link {
+        padding: 0.5rem 1rem;
+        font-size: 0.8rem;
     }
 
     .hero-title {
