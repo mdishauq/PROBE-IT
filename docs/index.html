@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probe IT - System Performance Monitoring</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">PROBE IT</div>
+            <ul class="nav-menu">
+                <li><a href="#overview">Overview</a></li>
+                <li><a href="#architecture">Architecture</a></li>
+                <li><a href="#engine">C++ Engine</a></li>
+                <li><a href="#concurrency">Concurrency</a></li>
+                <li><a href="#code">Code Examples</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">Probe IT</h1>
+            <p class="hero-subtitle">Real-time System Performance Monitoring</p>
+            <p class="hero-description">
+                A high-performance native engine built with C++ and Flutter, designed for accurate, low-overhead system telemetry
+            </p>
+        </div>
+    </section>
+
+    <!-- Overview Section -->
+    <section id="overview" class="section">
+        <div class="section-header">
+            <h2>Overview</h2>
+            <p class="section-subtitle">Core Platform & Design Philosophy</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Card 1 -->
+            <div class="bento-card card-tall fade-in">
+                <div class="card-header">
+                    <h3>Architecture Overview</h3>
+                </div>
+                <div class="card-content">
+                    <p>Probe IT operates as two cooperating subsystems working seamlessly together:</p>
+                    <ul class="feature-list">
+                        <li><strong>Native Engine (C++):</strong> Samples OS counters and computes derived metrics</li>
+                        <li><strong>Flutter Frontend (Dart):</strong> Receives live telemetry via platform channels</li>
+                        <li><strong>Data Flow:</strong> C++ → Plugin Layer → Flutter UI</li>
+                        <li><strong>Concurrency:</strong> Continuous sampling without blocking UI work</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Design Goals</h3>
+                </div>
+                <div class="card-content">
+                    <p>Built with precision and efficiency:</p>
+                    <ul class="feature-list">
+                        <li>Accurate native readings</li>
+                        <li>Low overhead operation</li>
+                        <li>Safe concurrency</li>
+                        <li>Simple serialization</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Key Constraints</h3>
+                </div>
+                <div class="card-content">
+                    <p>Platform support and reliability:</p>
+                    <ul class="feature-list">
+                        <li>No abstraction-induced error</li>
+                        <li>Fast, graceful shutdown</li>
+                        <li>Cross-platform portability</li>
+                        <li>Portable sampling code</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Windows Integration</h3>
+                </div>
+                <div class="card-content">
+                    <p>Native API usage for precision:</p>
+                    <ul class="feature-list">
+                        <li>GlobalMemoryStatusEx</li>
+                        <li>GetSystemTimes</li>
+                        <li>FILETIME conversions</li>
+                        <li>Safe helper functions</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="section">
+        <div class="section-header">
+            <h2>Architecture</h2>
+            <p class="section-subtitle">System Design & Component Interaction</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Card 1 -->
+            <div class="bento-card card-tall fade-in">
+                <div class="card-header">
+                    <h3>Data Model</h3>
+                </div>
+                <div class="card-content">
+                    <p>Core data structures for efficient telemetry:</p>
+                    <ul class="feature-list">
+                        <li><strong>health_reads:</strong> Raw system readings</li>
+                        <li><strong>ResultPackage:</strong> Computed metrics with units</li>
+                        <li><strong>Metrics:</strong> Double/ratio values</li>
+                        <li><strong>Design:</strong> Small POD structs</li>
+                    </ul>
+                    <p style="margin-top: 1rem; font-size: 0.9rem; color: #666;">POD (Plain Old Data) structures ensure efficient serialization and minimal overhead across thread boundaries.</p>
+                </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Derived Metrics</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>ram_usage_percent</li>
+                        <li>cpu_load_percent</li>
+                        <li>memory_to_swap_ratio</li>
+                        <li>virtual_memory_pressure</li>
+                        <li>page_file_stress</li>
+                        <li>system_commit_limit</li>
+                    </ul>
+                </div>
+            </card>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Sampling Strategy</h3>
+                </div>
+                <div class="card-content">
+                    <p>Configurable polling approach:</p>
+                    <ul class="feature-list">
+                        <li>Interval: 100-500ms</li>
+                        <li>Safe helpers with boolean returns</li>
+                        <li>No exception throwing</li>
+                        <li>Thread-safe operations</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Computation Pipeline</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Numeric-stable calculations</li>
+                        <li>Division-by-zero checking</li>
+                        <li>Unit conversion (Bytes → GB)</li>
+                        <li>Percentage normalization</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- C++ Engine Section -->
+    <section id="engine" class="section">
+        <div class="section-header">
+            <h2>C++ Engine</h2>
+            <p class="section-subtitle">Native Implementation Details</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Code Card 1 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Header Definition (health_sensor.hpp)</h3>
+                </div>
+                <div class="card-content code-card">
+                    <pre><code class="language-cpp">#ifndef HEALTH_SENSOR_HPP
+#define HEALTH_SENSOR_HPP
+#include &lt;Windows.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;cmath&gt;
+
+enum class DataUnit : uint8_t {
+    Bytes, KB, MB, GB, TB
+};
+
+class health_sensor {
+public:
+    struct health_reads {
+        uint8_t MemoryLoad;
+        uint64_t TotalRam;
+        uint64_t RamAvailable;
+        uint64_t TotalPageFile;
+        uint64_t TotalAvailPageFile;
+        uint64_t TotalVirtualMemory;
+        uint64_t TotalAvailVirtualMemory;
+    };
+
+    struct ResultPackage {
+        double Value;
+        DataUnit unit;
+    };
+
+    uint64_t prevIdle, prevKernel, prevUser;
+    
+    void CPU_AttributesRetriver(void);
+    void UsedRamCalculator(ResultPackage* rstptr);
+    double RamUsageLevel();
+    double CpuWorkingLoad();
+};
+
+#endif</code></pre>
+                </div>
+            </div>
+
+            <!-- Code Card 2 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Memory Sampling (health_sensor.cpp)</h3>
+                </div>
+                <div class="card-content code-card">
+                    <pre><code class="language-cpp">void health_sensor::CPU_AttributesRetriver(){
+    winState.dwLength = sizeof(winState);
+    if(GlobalMemoryStatusEx(&winState)){
+        // Retrieve system memory statistics
+        health_data.MemoryLoad = winState.dwMemoryLoad;
+        health_data.TotalRam = winState.ullTotalPhys;
+        health_data.RamAvailable = winState.ullAvailPhys;
+        health_data.TotalPageFile = winState.ullTotalPageFile;
+        health_data.TotalAvailPageFile = winState.ullAvailPageFile;
+        health_data.TotalVirtualMemory = winState.ullTotalVirtual;
+        health_data.TotalAvailVirtualMemory = winState.ullAvailVirtual;
+    }
+}
+
+void health_sensor::UsedRamCalculator(ResultPackage* rstptr) {
+    uint64_t UsedRam = health_data.TotalRam - health_data.RamAvailable;
+    
+    const uint64_t GB = 1073741824; // 1024^3
+    const uint64_t MB = 1048576;    // 1024^2
+    const uint64_t KB = 1024;
+
+    if (UsedRam >= GB) {
+        rstptr->Value = (double)UsedRam / GB;
+        rstptr->unit = DataUnit::GB;
+    } else if (UsedRam >= MB) {
+        rstptr->Value = (double)UsedRam / MB;
+        rstptr->unit = DataUnit::MB;
+    }
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Concurrency Section -->
+    <section id="concurrency" class="section">
+        <div class="section-header">
+            <h2>Concurrency Model</h2>
+            <p class="section-subtitle">Threading, Synchronization & Lifecycle</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Card 1 -->
+            <div class="bento-card card-tall fade-in">
+                <div class="card-header">
+                    <h3>Threading Model</h3>
+                </div>
+                <div class="card-content">
+                    <p>Dual-thread architecture for responsiveness:</p>
+                    <ul class="feature-list">
+                        <li><strong>Sampling Thread:</strong> OS API calls at configured rate</li>
+                        <li><strong>Platform Thread:</strong> Flutter EventSink interaction</li>
+                        <li><strong>Separation:</strong> Minimal work per thread</li>
+                        <li><strong>Handoff:</strong> Lock-protected queue or concurrent_queue</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Communication Patterns</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Lock-protected shared pointer</li>
+                        <li>Encodable payload copy</li>
+                        <li>std::deque for queueing</li>
+                        <li>Queue draining on platform thread</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Shutdown Protocol</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>std::atomic&lt;bool&gt; running flag</li>
+                        <li>std::thread join in destructor</li>
+                        <li>std::condition_variable for wake</li>
+                        <li>Graceful cleanup</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Synchronization Rules</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>No locks during heavy ops</li>
+                        <li>Value semantics for payloads</li>
+                        <li>std::mutex for critical sections</li>
+                        <li>Move semantics to minimize copies</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Examples Section -->
+    <section id="code" class="section">
+        <div class="section-header">
+            <h2>Implementation Examples</h2>
+            <p class="section-subtitle">Key Code Patterns & Threading Logic</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Code Card 1 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Polling Thread Pseudocode</h3>
+                </div>
+                <div class="card-content code-card">
+                    <pre><code class="language-cpp">// Polling thread main loop
+while (running) {
+    // Sample system state
+    sensor.CPU_AttributesRetriver();
+    sensor.getsystemtimes();
+    
+    // Build result package
+    EncodableMap payload = build_payload(sensor);
+    
+    // Push to queue with short lock
+    {
+        std::lock_guard&lt;std::mutex&gt; lk(queue_mutex);
+        queue.push_back(std::move(payload));
+    }
+    
+    // Schedule platform thread task
+    platform_task_runner->PostTask([&]{
+        drain_queue_and_call_sink();
+    });
+    
+    // Wait before next sample
+    std::this_thread::sleep_for(poll_interval);
+}</code></pre>
+                </div>
+            </div>
+
+            <!-- Code Card 2 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Main Application Flow (main.cpp)</h3>
+                </div>
+                <div class="card-content code-card">
+                    <pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;thread&gt;
+#include &lt;mutex&gt;
+#include &lt;condition_variable&gt;
+#include &lt;atomic&gt;
+#include "health_sensor.hpp"
+
+// Helper function to convert enum to string
+const char* UnitToString(DataUnit unit) {
+    switch (unit) {
+        case DataUnit::Bytes: return "Bytes";
+        case DataUnit::KB:    return "KB";
+        case DataUnit::MB:    return "MB";
+        case DataUnit::GB:    return "GB";
+        case DataUnit::TB:    return "TB";
+        default:              return "??";
+    }
+}
+
+// Thread functions
+void FreshDataFunc(health_sensor* clsptr);
+void UICalculatorfunc(health_sensor* clsptr,
+    health_sensor::ResultPackage* ramPkg);
+void PredictiveCalculationsfunc(health_sensor* sensor,
+    double* cpu, double* ramLvl);
+
+// Global synchronization
+std::mutex DataMutex;
+std::mutex PrintMutexA;
+std::condition_variable AlertCalculators;
+std::atomic&lt;bool&gt; ProgramRunning(true);</code></pre>
+                </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Error Handling</h3>
+                </div>
+                <div class="card-content">
+                    <p>Robust, exception-safe patterns:</p>
+                    <ul class="feature-list">
+                        <li>Boolean return values</li>
+                        <li>No exceptions across threads</li>
+                        <li>Check division-by-zero</li>
+                        <li>Atomic flags for shutdown</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Serialization</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>flutter::EncodableMap output</li>
+                        <li>Primitive types only (strings, ints, doubles)</li>
+                        <li>Enum as small integers</li>
+                        <li>Shallow payloads</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testing & Validation Section -->
+    <section id="testing" class="section">
+        <div class="section-header">
+            <h2>Testing & Validation</h2>
+            <p class="section-subtitle">Quality Assurance & Performance</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Card 1 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Unit Testing</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Calculation functions</li>
+                        <li>Edge case validation</li>
+                        <li>Percentage accuracy</li>
+                        <li>Ratio calculations</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Integration Testing</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Continuous sampling</li>
+                        <li>Extended period validation</li>
+                        <li>Memory overhead measurement</li>
+                        <li>CPU overhead analysis</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Performance Metrics</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Latency measurement</li>
+                        <li>Sample to UI visibility</li>
+                        <li>Under-load validation</li>
+                        <li>Platform thread verification</li>
+                    </ul>
+                </div>
+            </card>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Debug Checks</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Thread safety assertions</li>
+                        <li>Sink call verification</li>
+                        <li>Memory leak detection</li>
+                        <li>Race condition analysis</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Future Work Section -->
+    <section class="section">
+        <div class="section-header">
+            <h2>Portability & Future Work</h2>
+            <p class="section-subtitle">Cross-Platform Expansion</p>
+        </div>
+
+        <div class="bento-grid">
+            <!-- Card 1 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Linux Support</h3>
+                </div>
+                <div class="card-content">
+                    <p>Planned expansion for Linux systems:</p>
+                    <ul class="feature-list">
+                        <li>Sampling via /proc filesystem</li>
+                        <li>sysinfo() API integration</li>
+                        <li>Keep engine architecture unchanged</li>
+                        <li>Reuse serialization layer</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="bento-card card-wide fade-in">
+                <div class="card-header">
+                    <h3>Android Support</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Native library via JNI/NDK</li>
+                        <li>Android API integration</li>
+                        <li>Core sampling rewrite</li>
+                        <li>Existing UI layer reuse</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Performance Optimizations</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>Lock-free SPSC queue</li>
+                        <li>Ring buffer implementation</li>
+                        <li>Ultra-low latency modes</li>
+                        <li>Batch update support</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="bento-card fade-in">
+                <div class="card-header">
+                    <h3>Build & Packaging</h3>
+                </div>
+                <div class="card-content">
+                    <ul class="feature-list">
+                        <li>CMake build system</li>
+                        <li>Modular C++ library</li>
+                        <li>Header-only utilities</li>
+                        <li>Inno Setup installer</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2026 Probe IT. All rights reserved.</p>
+            <p>High-performance system monitoring engineered for precision.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,831 @@
+#include <iostream>
+#include <iomanip>
+#include <string>
+#include "health_sensor.hpp"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <csignal>
+#include <atomic>
+
+// Helper function to turn the Enum number into readable text
+const char* UnitToString(DataUnit unit) {
+    switch (unit) {
+        case DataUnit::Bytes: return "Bytes";
+        case DataUnit::KB:    return "KB";
+        case DataUnit::MB:    return "MB";
+        case DataUnit::GB:    return "GB";
+        case DataUnit::TB:    return "TB";
+        default:              return "??";
+    }
+}
+
+//THREAD FUNCTIONS GLOBAL DECLARATION
+
+void FreshDataFunc(health_sensor* clsptr);
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio);
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredPrinterfunc(health_sensor* sensor);
+
+//GLOBAL MUTEX VARIABLES
+std::mutex DataMutex;     //mutex used to alert the FreshData
+std::mutex PrintMutexA;   // shared between UICalculator and UIprinter
+std::mutex PrintMutexB;   // shared between PredCalculator and PredPrinter
+
+//condtion variables AND Return VARIABLES
+std::condition_variable AlertCalculators;
+std::condition_variable AlertFreshData;
+std::condition_variable UICalculatorPrint;
+std::condition_variable PredCalculatorPrint;
+
+std::condition_variable UIprintTOCalculator;
+std::condition_variable predprintTOCalculator;
+
+// Thread-safe exit flag
+std::atomic<bool> ProgramRunning(true);
+
+// Flag control variables
+bool DataAcquisitionFinished = false;
+int CalculationFinished = 0;
+bool UIDataReady = false;
+bool PredDataReady = false;
+bool UIprintDone = false;
+bool PredPrintDone = false;
+
+//OBJECTS(class,resultPKG)
+health_sensor sensor;
+health_sensor::ResultPackage ramPkg;
+health_sensor::ResultPackage pagePkg;
+health_sensor::ResultPackage virtualPkg;
+
+
+//Predictive Analysis Global Variable
+double cpu ;
+double ramLvl ;
+double swapRatio;
+
+// Signal handler for graceful shutdown
+void signalHandler(int signum) {
+    std::cout << "\n\nShutdown signal received. Exiting...\n";
+    ProgramRunning = false;
+}
+
+int main() {
+
+    // Register signal handler for Ctrl+C
+    std::signal(SIGINT, signalHandler);
+
+    //Clear and Render Dashboard
+        system("cls"); 
+
+        std::cout << "====================================================" << std::endl;
+        std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+        std::cout << "====================================================" << std::endl;
+
+    
+    //ALL THREADS
+    ////-->capture snapshot of the data
+    std::thread FreshDataThread(FreshDataFunc,&sensor);
+    //-->RUNS simultaneously TWO THREADS (UI CAL,predictive Levels)
+    std::thread UIcalThread(UICalculatorfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredCalThread(PredictiveCalculationsfunc,&sensor,&cpu,&ramLvl,&swapRatio);
+    //-->RUNS simultaneously TWO THREADS (UI CAL PRINTER,predictive Levels PRINTER)
+    std::thread UIprintThread(UIprinterfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredPrinterThread(PredPrinterfunc,&sensor);
+
+    //THREADS JOIN
+    FreshDataThread.join();
+    UIcalThread.join();
+    PredCalThread.join();
+    UIprintThread.join();
+    PredPrinterThread.join();
+
+    std::cout << "Main: all done.\n";
+    return 0;
+}
+
+void FreshDataFunc(health_sensor* clsptr) {
+    while (ProgramRunning) {
+        clsptr->CPU_AttributesRetriver();
+        clsptr->getsystemtimes();
+
+        {
+            std::lock_guard<std::mutex> lock(DataMutex);
+            // Reset ALL flags before publishing new data
+            DataAcquisitionFinished = true;
+            CalculationFinished    = 0;
+            UIDataReady            = false;
+            PredDataReady          = false;
+            UIprintDone            = false;
+            PredPrintDone          = false;
+        }
+        AlertCalculators.notify_all();
+
+        // Wait for both calculators to fully complete their chain
+        std::unique_lock<std::mutex> lock(DataMutex);
+        AlertFreshData.wait(lock, []{ return CalculationFinished == 2; });
+        DataAcquisitionFinished = false; // reset for next cycle
+    }
+}
+
+
+
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    
+    std::unique_lock<std::mutex> lock(DataMutex);
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // 2. Run UI Calculators
+    clsptr->UsedRamCalculator(ramPkg);
+    clsptr->UsedPageFileCalculator(pagePkg);
+    clsptr->UsedVirtualMemory(virtualPkg);
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockA(PrintMutexA);
+    //WORKER ALERT PRINTER
+    UIDataReady = true;
+    UICalculatorPrint.notify_one();
+    //WORKER WAIT FOR PRINTER TO FINISH
+    UIprintTOCalculator.wait(lockA,[]{ return UIprintDone; });
+    lockA.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockB(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(DataMutex);
+    //wait till the FreshData Finishes it job
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // Predictive Levels
+    *cpu = sensor->CpuWorkingLoad();
+    *ramLvl = sensor->RamUsageLevel();
+    *swapRatio = sensor->MemoryTOSwapRatio();
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockB(PrintMutexB);
+    //WORKER ALERT PRINTER
+    PredDataReady = true;
+    PredCalculatorPrint.notify_one();
+    predprintTOCalculator.wait(lockB,[]{return PredPrintDone;});
+    lockB.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockC(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexA);
+    UICalculatorPrint.wait(lock,[]{return UIDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    system("cls");
+    std::cout << "====================================================" << std::endl;
+    std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+    std::cout << "====================================================" << std::endl;
+    
+    // Current Hardware Usage
+    std::cout << " [USAGE METRICS]" << std::endl;
+    std::cout << " Physical RAM Used:   " << ramPkg->Value << " " << UnitToString(ramPkg->unit) << std::endl;
+    std::cout << " Page File Used:     " << pagePkg->Value << " " << UnitToString(pagePkg->unit) << std::endl;
+    std::cout << " Virtual Space:      " << virtualPkg->Value << " " << UnitToString(virtualPkg->unit) << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    //ALERT THE CALCULATOR ,PRINT IS DONE
+    UIDataReady = false;
+    UIprintDone = true;
+    UIprintTOCalculator.notify_one();
+}
+
+}
+
+void PredPrinterfunc(health_sensor* sensor){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexB);
+    PredCalculatorPrint.wait(lock, []{return PredDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    // Read values while holding lock to prevent data races
+    double cpuVal = cpu;
+    double ramVal = ramLvl;
+    double swapVal = swapRatio;
+    
+    std::cout << " [HEALTH LEVELS]" << std::endl;
+    std::cout << " CPU Working Load:    " << cpuVal << "%" << std::endl;
+    std::cout << " RAM Saturation:      " << ramVal << "%" << std::endl;
+    std::cout << " Memory-to-Swap:      " << swapVal << " (Target < 1.0)" << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    // 4. PREDICTIVE MAINTENANCE ALERTS
+    std::cout << " [STATUS DIAGNOSIS]" << std::endl;
+    
+    bool healthy = true;
+
+    if (swapVal > 1.0) {
+        std::cout << " ! ALERT: High Swap Ratio. System is RAM-starved." << std::endl;
+        healthy = false;
+    }
+    if (cpuVal > 90.0) {
+        std::cout << " ! WARNING: Critical CPU bottleneck detected." << std::endl;
+        healthy = false;
+    }
+    if (ramVal > 85.0) {
+        std::cout << " ! WARNING: Physical RAM nearing capacity." << std::endl;
+        healthy = false;
+    }
+
+    if (healthy) {
+        std::cout << " > System status is OPTIMAL." << std::endl;
+    }
+
+    std::cout << "====================================================" << std::endl;
+    std::cout << " Monitoring... Press Ctrl+C to exit." << std::endl;
+
+    //Printer Alert the Calculator
+    PredDataReady = false;
+    PredPrintDone = true;
+    predprintTOCalculator.notify_one();
+}
+
+}
+#include <iostream>
+#include <iomanip>
+#include <string>
+#include "health_sensor.hpp"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <csignal>
+#include <atomic>
+
+// Helper function to turn the Enum number into readable text
+const char* UnitToString(DataUnit unit) {
+    switch (unit) {
+        case DataUnit::Bytes: return "Bytes";
+        case DataUnit::KB:    return "KB";
+        case DataUnit::MB:    return "MB";
+        case DataUnit::GB:    return "GB";
+        case DataUnit::TB:    return "TB";
+        default:              return "??";
+    }
+}
+
+//THREAD FUNCTIONS GLOBAL DECLARATION
+
+void FreshDataFunc(health_sensor* clsptr);
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio);
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredPrinterfunc(health_sensor* sensor);
+
+//GLOBAL MUTEX VARIABLES
+std::mutex DataMutex;     //mutex used to alert the FreshData
+std::mutex PrintMutexA;   // shared between UICalculator and UIprinter
+std::mutex PrintMutexB;   // shared between PredCalculator and PredPrinter
+
+//condtion variables AND Return VARIABLES
+std::condition_variable AlertCalculators;
+std::condition_variable AlertFreshData;
+std::condition_variable UICalculatorPrint;
+std::condition_variable PredCalculatorPrint;
+
+std::condition_variable UIprintTOCalculator;
+std::condition_variable predprintTOCalculator;
+
+// Thread-safe exit flag
+std::atomic<bool> ProgramRunning(true);
+
+// Flag control variables
+bool DataAcquisitionFinished = false;
+int CalculationFinished = 0;
+bool UIDataReady = false;
+bool PredDataReady = false;
+bool UIprintDone = false;
+bool PredPrintDone = false;
+
+//OBJECTS(class,resultPKG)
+health_sensor sensor;
+health_sensor::ResultPackage ramPkg;
+health_sensor::ResultPackage pagePkg;
+health_sensor::ResultPackage virtualPkg;
+
+
+//Predictive Analysis Global Variable
+double cpu ;
+double ramLvl ;
+double swapRatio;
+
+// Signal handler for graceful shutdown
+void signalHandler(int signum) {
+    std::cout << "\n\nShutdown signal received. Exiting...\n";
+    ProgramRunning = false;
+}
+
+int main() {
+
+    // Register signal handler for Ctrl+C
+    std::signal(SIGINT, signalHandler);
+
+    //Clear and Render Dashboard
+        system("cls"); 
+
+        std::cout << "====================================================" << std::endl;
+        std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+        std::cout << "====================================================" << std::endl;
+
+    
+    //ALL THREADS
+    ////-->capture snapshot of the data
+    std::thread FreshDataThread(FreshDataFunc,&sensor);
+    //-->RUNS simultaneously TWO THREADS (UI CAL,predictive Levels)
+    std::thread UIcalThread(UICalculatorfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredCalThread(PredictiveCalculationsfunc,&sensor,&cpu,&ramLvl,&swapRatio);
+    //-->RUNS simultaneously TWO THREADS (UI CAL PRINTER,predictive Levels PRINTER)
+    std::thread UIprintThread(UIprinterfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredPrinterThread(PredPrinterfunc,&sensor);
+
+    //THREADS JOIN
+    FreshDataThread.join();
+    UIcalThread.join();
+    PredCalThread.join();
+    UIprintThread.join();
+    PredPrinterThread.join();
+
+    std::cout << "Main: all done.\n";
+    return 0;
+}
+
+void FreshDataFunc(health_sensor* clsptr) {
+    while (ProgramRunning) {
+        clsptr->CPU_AttributesRetriver();
+        clsptr->getsystemtimes();
+
+        {
+            std::lock_guard<std::mutex> lock(DataMutex);
+            // Reset ALL flags before publishing new data
+            DataAcquisitionFinished = true;
+            CalculationFinished    = 0;
+            UIDataReady            = false;
+            PredDataReady          = false;
+            UIprintDone            = false;
+            PredPrintDone          = false;
+        }
+        AlertCalculators.notify_all();
+
+        // Wait for both calculators to fully complete their chain
+        std::unique_lock<std::mutex> lock(DataMutex);
+        AlertFreshData.wait(lock, []{ return CalculationFinished == 2; });
+        DataAcquisitionFinished = false; // reset for next cycle
+    }
+}
+
+
+
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    
+    std::unique_lock<std::mutex> lock(DataMutex);
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // 2. Run UI Calculators
+    clsptr->UsedRamCalculator(ramPkg);
+    clsptr->UsedPageFileCalculator(pagePkg);
+    clsptr->UsedVirtualMemory(virtualPkg);
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockA(PrintMutexA);
+    //WORKER ALERT PRINTER
+    UIDataReady = true;
+    UICalculatorPrint.notify_one();
+    //WORKER WAIT FOR PRINTER TO FINISH
+    UIprintTOCalculator.wait(lockA,[]{ return UIprintDone; });
+    lockA.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockB(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(DataMutex);
+    //wait till the FreshData Finishes it job
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // Predictive Levels
+    *cpu = sensor->CpuWorkingLoad();
+    *ramLvl = sensor->RamUsageLevel();
+    *swapRatio = sensor->MemoryTOSwapRatio();
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockB(PrintMutexB);
+    //WORKER ALERT PRINTER
+    PredDataReady = true;
+    PredCalculatorPrint.notify_one();
+    predprintTOCalculator.wait(lockB,[]{return PredPrintDone;});
+    lockB.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockC(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexA);
+    UICalculatorPrint.wait(lock,[]{return UIDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    system("cls");
+    std::cout << "====================================================" << std::endl;
+    std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+    std::cout << "====================================================" << std::endl;
+    
+    // Current Hardware Usage
+    std::cout << " [USAGE METRICS]" << std::endl;
+    std::cout << " Physical RAM Used:   " << ramPkg->Value << " " << UnitToString(ramPkg->unit) << std::endl;
+    std::cout << " Page File Used:     " << pagePkg->Value << " " << UnitToString(pagePkg->unit) << std::endl;
+    std::cout << " Virtual Space:      " << virtualPkg->Value << " " << UnitToString(virtualPkg->unit) << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    //ALERT THE CALCULATOR ,PRINT IS DONE
+    UIDataReady = false;
+    UIprintDone = true;
+    UIprintTOCalculator.notify_one();
+}
+
+}
+
+void PredPrinterfunc(health_sensor* sensor){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexB);
+    PredCalculatorPrint.wait(lock, []{return PredDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    // Read values while holding lock to prevent data races
+    double cpuVal = cpu;
+    double ramVal = ramLvl;
+    double swapVal = swapRatio;
+    
+    std::cout << " [HEALTH LEVELS]" << std::endl;
+    std::cout << " CPU Working Load:    " << cpuVal << "%" << std::endl;
+    std::cout << " RAM Saturation:      " << ramVal << "%" << std::endl;
+    std::cout << " Memory-to-Swap:      " << swapVal << " (Target < 1.0)" << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    // 4. PREDICTIVE MAINTENANCE ALERTS
+    std::cout << " [STATUS DIAGNOSIS]" << std::endl;
+    
+    bool healthy = true;
+
+    if (swapVal > 1.0) {
+        std::cout << " ! ALERT: High Swap Ratio. System is RAM-starved." << std::endl;
+        healthy = false;
+    }
+    if (cpuVal > 90.0) {
+        std::cout << " ! WARNING: Critical CPU bottleneck detected." << std::endl;
+        healthy = false;
+    }
+    if (ramVal > 85.0) {
+        std::cout << " ! WARNING: Physical RAM nearing capacity." << std::endl;
+        healthy = false;
+    }
+
+    if (healthy) {
+        std::cout << " > System status is OPTIMAL." << std::endl;
+    }
+
+    std::cout << "====================================================" << std::endl;
+    std::cout << " Monitoring... Press Ctrl+C to exit." << std::endl;
+
+    //Printer Alert the Calculator
+    PredDataReady = false;
+    PredPrintDone = true;
+    predprintTOCalculator.notify_one();
+}
+
+}
+#include <iostream>
+#include <iomanip>
+#include <string>
+#include "health_sensor.hpp"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <csignal>
+#include <atomic>
+
+// Helper function to turn the Enum number into readable text
+const char* UnitToString(DataUnit unit) {
+    switch (unit) {
+        case DataUnit::Bytes: return "Bytes";
+        case DataUnit::KB:    return "KB";
+        case DataUnit::MB:    return "MB";
+        case DataUnit::GB:    return "GB";
+        case DataUnit::TB:    return "TB";
+        default:              return "??";
+    }
+}
+
+//THREAD FUNCTIONS GLOBAL DECLARATION
+
+void FreshDataFunc(health_sensor* clsptr);
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio);
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+        health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg);
+void PredPrinterfunc(health_sensor* sensor);
+
+//GLOBAL MUTEX VARIABLES
+std::mutex DataMutex;     //mutex used to alert the FreshData
+std::mutex PrintMutexA;   // shared between UICalculator and UIprinter
+std::mutex PrintMutexB;   // shared between PredCalculator and PredPrinter
+
+//condtion variables AND Return VARIABLES
+std::condition_variable AlertCalculators;
+std::condition_variable AlertFreshData;
+std::condition_variable UICalculatorPrint;
+std::condition_variable PredCalculatorPrint;
+
+std::condition_variable UIprintTOCalculator;
+std::condition_variable predprintTOCalculator;
+
+// Thread-safe exit flag
+std::atomic<bool> ProgramRunning(true);
+
+// Flag control variables
+bool DataAcquisitionFinished = false;
+int CalculationFinished = 0;
+bool UIDataReady = false;
+bool PredDataReady = false;
+bool UIprintDone = false;
+bool PredPrintDone = false;
+
+//OBJECTS(class,resultPKG)
+health_sensor sensor;
+health_sensor::ResultPackage ramPkg;
+health_sensor::ResultPackage pagePkg;
+health_sensor::ResultPackage virtualPkg;
+
+
+//Predictive Analysis Global Variable
+double cpu ;
+double ramLvl ;
+double swapRatio;
+
+// Signal handler for graceful shutdown
+void signalHandler(int signum) {
+    std::cout << "\n\nShutdown signal received. Exiting...\n";
+    ProgramRunning = false;
+}
+
+int main() {
+
+    // Register signal handler for Ctrl+C
+    std::signal(SIGINT, signalHandler);
+
+    //Clear and Render Dashboard
+        system("cls"); 
+
+        std::cout << "====================================================" << std::endl;
+        std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+        std::cout << "====================================================" << std::endl;
+
+    
+    //ALL THREADS
+    ////-->capture snapshot of the data
+    std::thread FreshDataThread(FreshDataFunc,&sensor);
+    //-->RUNS simultaneously TWO THREADS (UI CAL,predictive Levels)
+    std::thread UIcalThread(UICalculatorfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredCalThread(PredictiveCalculationsfunc,&sensor,&cpu,&ramLvl,&swapRatio);
+    //-->RUNS simultaneously TWO THREADS (UI CAL PRINTER,predictive Levels PRINTER)
+    std::thread UIprintThread(UIprinterfunc,&sensor,&ramPkg,&pagePkg,&virtualPkg);
+    std::thread PredPrinterThread(PredPrinterfunc,&sensor);
+
+    //THREADS JOIN
+    FreshDataThread.join();
+    UIcalThread.join();
+    PredCalThread.join();
+    UIprintThread.join();
+    PredPrinterThread.join();
+
+    std::cout << "Main: all done.\n";
+    return 0;
+}
+
+void FreshDataFunc(health_sensor* clsptr) {
+    while (ProgramRunning) {
+        clsptr->CPU_AttributesRetriver();
+        clsptr->getsystemtimes();
+
+        {
+            std::lock_guard<std::mutex> lock(DataMutex);
+            // Reset ALL flags before publishing new data
+            DataAcquisitionFinished = true;
+            CalculationFinished    = 0;
+            UIDataReady            = false;
+            PredDataReady          = false;
+            UIprintDone            = false;
+            PredPrintDone          = false;
+        }
+        AlertCalculators.notify_all();
+
+        // Wait for both calculators to fully complete their chain
+        std::unique_lock<std::mutex> lock(DataMutex);
+        AlertFreshData.wait(lock, []{ return CalculationFinished == 2; });
+        DataAcquisitionFinished = false; // reset for next cycle
+    }
+}
+
+
+
+void UICalculatorfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    
+    std::unique_lock<std::mutex> lock(DataMutex);
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // 2. Run UI Calculators
+    clsptr->UsedRamCalculator(ramPkg);
+    clsptr->UsedPageFileCalculator(pagePkg);
+    clsptr->UsedVirtualMemory(virtualPkg);
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockA(PrintMutexA);
+    //WORKER ALERT PRINTER
+    UIDataReady = true;
+    UICalculatorPrint.notify_one();
+    //WORKER WAIT FOR PRINTER TO FINISH
+    UIprintTOCalculator.wait(lockA,[]{ return UIprintDone; });
+    lockA.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockB(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void PredictiveCalculationsfunc(health_sensor* sensor,double* cpu,double* ramLvl ,double* swapRatio){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(DataMutex);
+    //wait till the FreshData Finishes it job
+    AlertCalculators.wait(lock, []{ return DataAcquisitionFinished;});
+    if (!ProgramRunning) break;
+    
+    // Predictive Levels
+    *cpu = sensor->CpuWorkingLoad();
+    *ramLvl = sensor->RamUsageLevel();
+    *swapRatio = sensor->MemoryTOSwapRatio();
+    lock.unlock();
+    
+    std::unique_lock<std::mutex> lockB(PrintMutexB);
+    //WORKER ALERT PRINTER
+    PredDataReady = true;
+    PredCalculatorPrint.notify_one();
+    predprintTOCalculator.wait(lockB,[]{return PredPrintDone;});
+    lockB.unlock();
+    
+    //ALERT FRESHDATA FOR NEXT SNAPSHOT
+    std::lock_guard<std::mutex> lockC(DataMutex);
+    CalculationFinished++;
+    AlertFreshData.notify_all();
+}
+
+}
+
+void UIprinterfunc(health_sensor* clsptr,health_sensor::ResultPackage* ramPkg,
+    health_sensor::ResultPackage* pagePkg,health_sensor::ResultPackage* virtualPkg){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexA);
+    UICalculatorPrint.wait(lock,[]{return UIDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    system("cls");
+    std::cout << "====================================================" << std::endl;
+    std::cout << "      INDUSTRIAL DOCTOR v2.0 | SYSTEM HEALTH        " << std::endl;
+    std::cout << "====================================================" << std::endl;
+    
+    // Current Hardware Usage
+    std::cout << " [USAGE METRICS]" << std::endl;
+    std::cout << " Physical RAM Used:   " << ramPkg->Value << " " << UnitToString(ramPkg->unit) << std::endl;
+    std::cout << " Page File Used:     " << pagePkg->Value << " " << UnitToString(pagePkg->unit) << std::endl;
+    std::cout << " Virtual Space:      " << virtualPkg->Value << " " << UnitToString(virtualPkg->unit) << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    //ALERT THE CALCULATOR ,PRINT IS DONE
+    UIDataReady = false;
+    UIprintDone = true;
+    UIprintTOCalculator.notify_one();
+}
+
+}
+
+void PredPrinterfunc(health_sensor* sensor){
+
+while(ProgramRunning){
+    std::unique_lock<std::mutex> lock(PrintMutexB);
+    PredCalculatorPrint.wait(lock, []{return PredDataReady;});
+    
+    if (!ProgramRunning) break;
+    
+    // Read values while holding lock to prevent data races
+    double cpuVal = cpu;
+    double ramVal = ramLvl;
+    double swapVal = swapRatio;
+    
+    std::cout << " [HEALTH LEVELS]" << std::endl;
+    std::cout << " CPU Working Load:    " << cpuVal << "%" << std::endl;
+    std::cout << " RAM Saturation:      " << ramVal << "%" << std::endl;
+    std::cout << " Memory-to-Swap:      " << swapVal << " (Target < 1.0)" << std::endl;
+    
+    std::cout << "----------------------------------------------------" << std::endl;
+
+    // 4. PREDICTIVE MAINTENANCE ALERTS
+    std::cout << " [STATUS DIAGNOSIS]" << std::endl;
+    
+    bool healthy = true;
+
+    if (swapVal > 1.0) {
+        std::cout << " ! ALERT: High Swap Ratio. System is RAM-starved." << std::endl;
+        healthy = false;
+    }
+    if (cpuVal > 90.0) {
+        std::cout << " ! WARNING: Critical CPU bottleneck detected." << std::endl;
+        healthy = false;
+    }
+    if (ramVal > 85.0) {
+        std::cout << " ! WARNING: Physical RAM nearing capacity." << std::endl;
+        healthy = false;
+    }
+
+    if (healthy) {
+        std::cout << " > System status is OPTIMAL." << std::endl;
+    }
+
+    std::cout << "====================================================" << std::endl;
+    std::cout << " Monitoring... Press Ctrl+C to exit." << std::endl;
+
+    //Printer Alert the Calculator
+    PredDataReady = false;
+    PredPrintDone = true;
+    predprintTOCalculator.notify_one();
+}
+
+}
